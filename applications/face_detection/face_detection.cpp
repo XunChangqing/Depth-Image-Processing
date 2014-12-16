@@ -49,11 +49,14 @@ const int kWindowHeight = 480;
 
 const int kFramesPerSecond = 30;
 
-const int kMaxDifference = 250;
-const int kMinDepth = 50;
-const int kMaxDepth = 5000;
-const float kMinFaceSize = 100.0f;
-const float kMaxFaceSize = 225.0f;
+const int kMinDepth = 256;
+const int kMinPixels = 10;
+const int kMinHeadPixels = 10;
+const int kHeadWidth = 150;
+const int kHeadHeight = 150;
+const int kHeadDepth = 100;
+const int kFaceSize = 150;
+const int kExtendedSize = 50;
 
 const char kCascade[] = "haarcascade_frontalface_default.xml";
 
@@ -105,10 +108,11 @@ void display() {
 
   // Eliminate sub-images using depth image.
   Size window_size = g_cascade.getOriginalWindowSize();
-  g_masker->Run(kMaxDifference, kMinDepth, kMaxDepth,
-                kMinFaceSize, kMaxFaceSize, window_size.width,
+  g_masker->Run(kMinDepth, kMinPixels, kMinHeadPixels, kHeadWidth, kHeadHeight,
+                kHeadDepth, kFaceSize, kExtendedSize, window_size.width,
                 g_camera->width(DEPTH_SENSOR), g_camera->height(DEPTH_SENSOR),
-                g_camera->fx(DEPTH_SENSOR), g_depth);
+                (g_camera->fx(DEPTH_SENSOR)+g_camera->fy(DEPTH_SENSOR)) / 2.0f,
+                g_depth, g_color);
 
   vector<Rect> faces;
   g_cascade.detectMultiScale(image, faces, 1.1, 3);
@@ -143,7 +147,7 @@ void display() {
                   g_camera->width(COLOR_SENSOR);
     float right = (float)(faces[i].x + faces[i].width) /
                   g_camera->width(COLOR_SENSOR);
-    float top = 1.0f - ((float)faces[i].y / 
+    float top = 1.0f - ((float)faces[i].y /
                 g_camera->height(COLOR_SENSOR));
     float bottom = 1.0f - ((float)(faces[i].y + faces[i].height) /
                    g_camera->height(COLOR_SENSOR));

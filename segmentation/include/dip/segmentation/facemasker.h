@@ -29,7 +29,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef DIP_SEGMENTATION_FACEMASKER_H
 #define DIP_SEGMENTATION_FACEMASKER_H
 
-#include <dip/common/distance.h>
 #include <dip/common/types.h>
 #include <dip/common/macros.h>
 #include <opencv2/objdetect/objdetect.hpp>
@@ -38,29 +37,39 @@ namespace dip {
 
 class FaceMasker : public cv::CascadeClassifier::MaskGenerator {
 public:
-  FaceMasker() : boundary_(NULL), distances_(NULL),
-                 min_sizes_(NULL), max_sizes_(NULL), size_(0) {}
+  FaceMasker() : head_region_(NULL), depth_integral_(NULL),
+                 head_integral_(NULL), min_sizes_(NULL), max_sizes_(NULL),
+                 size_(0), frame_(0), scale_(0) {}
   ~FaceMasker();
 
-  void Run(int max_difference, int min_depth, int max_depth,
-           float min_face_size, float max_face_size, int window_size,
-           int width, int height, float focal_length, const Depth *depth);
+  void Run(int min_depth, int min_pixels, int min_head_pixels,
+           int head_width, int head_height, int head_depth,
+           int face_size, int extended_size, int window_size,
+           int width, int height, float focal_length,
+           const Depth *depth, Color *color);
 
   // MaskGenerator functions.
   cv::Mat generateMask(const cv::Mat& src);
   void initializeMask(const cv::Mat& src) {}
 
 private:
-  Distance distance_;
+  void Integral(int width, int height, int min_depth, int max_depth,
+                const Depth *depth, int *integral);
+  void Integral(int width, int height, const int *input, int *integral);
 
-  bool *boundary_;
-  unsigned int *distances_;
+  int Sum(int width, int height, int left, int right, int top, int bottom,
+          const int *integral);
+  int Mean(int width, int height, int left, int right, int top, int bottom,
+           const int *integral);
 
-  float *min_sizes_;
-  float *max_sizes_;
+  int *head_region_;
+  int *depth_integral_, *head_integral_;
+
+  float *min_sizes_, *max_sizes_;
 
   int window_size_;
   int width_, height_, size_;
+  int frame_, scale_;
 
   DISALLOW_COPY_AND_ASSIGN(FaceMasker);
 };
