@@ -35,10 +35,14 @@ using namespace cv;
 namespace dip {
 
 FaceMasker::~FaceMasker() {
-  if (head_region_ != NULL)
-    delete [] head_region_;
+  if (valid_mask_ != NULL)
+    delete [] valid_mask_;
+  if (head_mask_ != NULL)
+    delete [] head_mask_;
   if (depth_integral_ != NULL)
     delete [] depth_integral_;
+  if (valid_integral_ != NULL)
+    delete [] valid_integral_;
   if (head_integral_ != NULL)
     delete [] head_integral_;
   if (min_sizes_ != NULL)
@@ -47,7 +51,7 @@ FaceMasker::~FaceMasker() {
     delete [] max_sizes_;
 }
 
-void FaceMasker::Run(int min_depth, int min_pixels, int min_head_pixels,
+void FaceMasker::Run(int min_depth, int min_pixels, int open_size,
                      int head_width, int head_height, int head_depth,
                      int face_size, int extended_size,
                      int window_size, int width, int height,
@@ -60,10 +64,14 @@ void FaceMasker::Run(int min_depth, int min_pixels, int min_head_pixels,
   if (size_ < (width_ * height_)) {
     size_ = width_ * height_;
 
-    if (head_region_ != NULL)
-      delete [] head_region_;
+    if (valid_mask_ != NULL)
+      delete [] valid_mask_;
+    if (head_mask_ != NULL)
+      delete [] head_mask_;
     if (depth_integral_ != NULL)
       delete [] depth_integral_;
+    if (valid_integral_ != NULL)
+      delete [] valid_integral_;
     if (head_integral_ != NULL)
       delete [] head_integral_;
     if (min_sizes_ != NULL)
@@ -71,49 +79,65 @@ void FaceMasker::Run(int min_depth, int min_pixels, int min_head_pixels,
     if (max_sizes_ != NULL)
       delete [] max_sizes_;
 
-    head_region_ = new int[size_];
+    valid_mask_ = new bool[size_];
+    head_mask_ = new bool[size_];
     depth_integral_ = new int[size_];
+    valid_integral_ = new int[size_];
     head_integral_ = new int[size_];
     min_sizes_ = new float[size_];
     max_sizes_ = new float[size_];
   }
 
   int max_depth = (head_width * focal_length) / min_pixels;
-  Integral(width, height, min_depth, max_depth, depth, depth_integral_);
+
+  #pragma omp parallel for
+  for (int i = 0; i < (width * height); i++) {
+    valid_mask_[i] = ((depth[i] > min_depth) && (depth[i] < max_depth)) ?
+                     true : false;
+  }
+
+  Integral(width, height, true, valid_mask_, valid_integral_);
+  Integral(width, height, valid_mask_, depth, depth_integral_);
 
   #pragma omp parallel for
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       int i = x + y * width;
 
-      head_region_[i] = 0;
-      if ((depth[i] > min_depth) && (depth[i] < max_depth)) {
+      head_mask_[i] = false;
+      if (valid_mask_[i]) {
         int head_cols = (int)((head_width * focal_length) / depth[i]);
         int head_rows = (int)((head_height * focal_length) / depth[i]);
 
         int center_average = Mean(width, height,
             x - head_cols / 2, x + head_cols / 2,
-            y - head_rows / 2, y + head_rows / 2, depth_integral_);
+            y - head_rows / 2, y + head_rows / 2,
+            depth_integral_, valid_integral_);
 
         int left_average = Mean(width, height,
             x - (5 * head_cols / 4), x - (3 * head_cols / 4),
-            y - head_rows / 2, y + head_rows / 2, depth_integral_);
+            y - head_rows / 2, y + head_rows / 2,
+            depth_integral_, valid_integral_);
 
         int right_average = Mean(width, height,
             x + (3 * head_cols / 4), x + (5 * head_cols / 4),
-            y - head_rows / 2, y + head_rows / 2, depth_integral_);
+            y - head_rows / 2, y + head_rows / 2,
+            depth_integral_, valid_integral_);
 
         int top_average = Mean(width, height,
             x - head_cols / 2, x + head_cols / 2,
-            y - (5 * head_rows / 4), y - (3 * head_rows / 4), depth_integral_);
+            y - (5 * head_rows / 4), y - (3 * head_rows / 4),
+            depth_integral_, valid_integral_);
 
         int top_left_average = Mean(width, height,
             x - (5 * head_cols / 4), x - (3 * head_cols / 4),
-            y - (5 * head_rows / 4), y - (3 * head_rows / 4), depth_integral_);
+            y - (5 * head_rows / 4), y - (3 * head_rows / 4),
+            depth_integral_, valid_integral_);
 
         int top_right_average = Mean(width, height,
             x + (3 * head_cols / 4), x + (5 * head_cols / 4),
-            y - (5 * head_rows / 4), y - (3 * head_rows / 4), depth_integral_);
+            y - (5 * head_rows / 4), y - (3 * head_rows / 4),
+            depth_integral_, valid_integral_);
 
         int center_difference = ABS(depth[i] - center_average);
         int left_difference = ABS(depth[i] - left_average);
@@ -124,17 +148,22 @@ void FaceMasker::Run(int min_depth, int min_pixels, int min_head_pixels,
 
         int alpha = head_depth;
         int beta = 2 * head_depth;
-        head_region_[i] = ((center_difference < alpha) &&
-                           (left_difference > beta) &&
-                           (right_difference > beta) &&
-                           (top_difference > beta) &&
-                           (top_left_difference > beta) &&
-                           (top_right_difference > beta)) ? 1 : 0;
+        head_mask_[i] = ((center_difference < alpha) &&
+                         (left_difference > beta) &&
+                         (right_difference > beta) &&
+                         (top_difference > beta) &&
+                         (top_left_difference > beta) &&
+                         (top_right_difference > beta)) ? true : false;
       }
     }
   }
 
-  Integral(width, height, head_region_, head_integral_);
+  Integral(width, height, false, head_mask_, head_integral_);
+  Erode(width, height, open_size, head_integral_, head_mask_);
+  Integral(width, height, true, head_mask_, head_integral_);
+  Dilate(width, height, open_size, head_integral_, head_mask_);
+
+  Integral(width, height, true, head_mask_, head_integral_);
 
   #pragma omp parallel for
   for (int y = 0; y < height; y++) {
@@ -142,12 +171,11 @@ void FaceMasker::Run(int min_depth, int min_pixels, int min_head_pixels,
       int i = x + y * width;
 
       min_sizes_[i] = max_sizes_[i] = 0.0f;
-      if ((depth[i] > min_depth) && (depth[i] < max_depth)) {
+      if (valid_mask_[i]) {
         int face_pixels = (int)((face_size * focal_length) / depth[i]);
 
         if (Sum(width, height, x - face_pixels / 2, x + face_pixels / 2,
-                y - face_pixels / 2, y + face_pixels / 2, head_integral_) >
-                min_head_pixels) {
+                y - face_pixels / 2, y + face_pixels / 2, head_integral_) > 0) {
           int extended_pixels =(int)((extended_size * focal_length) / depth[i]);
 
           min_sizes_[i] = face_pixels - extended_pixels;
@@ -170,7 +198,7 @@ void FaceMasker::Run(int min_depth, int min_pixels, int min_head_pixels,
     for (int x = 0; x < width_; x++) {
       int i = x + y * width_;
 
-      if (head_region_[i])
+      if (head_mask_[i])
         head_region.at<Vec3b>(y, x) = Vec3b(255, 255, 255);
     }
   }
@@ -250,13 +278,13 @@ Mat FaceMasker::generateMask(const Mat& src) {
   return mask;
 }
 
-void FaceMasker::Integral(int width, int height, int min_depth, int max_depth,
+void FaceMasker::Integral(int width, int height, bool *valid,
                           const Depth *depth, int *integral) {
   int i = 0;
   for (int y = 0; y < height; y++) {
     int sum = 0;
     for (int x = 0; x < width; x++, i++) {
-      if ((depth[i] > min_depth) && (depth[i] < max_depth))
+      if (valid[i])
         sum += depth[i];
 
       integral[i] = sum + ((y > 0) ? integral[i - width] : 0);
@@ -264,14 +292,48 @@ void FaceMasker::Integral(int width, int height, int min_depth, int max_depth,
   }
 }
 
-void FaceMasker::Integral(int width, int height, const int *input,
+void FaceMasker::Integral(int width, int height, bool flag, const bool *mask,
                           int *integral) {
   int i = 0;
   for (int y = 0; y < height; y++) {
     int sum = 0;
     for (int x = 0; x < width; x++, i++) {
-      sum += input[i];
+      sum += (mask[i] == flag) ? 1 : 0;
       integral[i] = sum + ((y > 0) ? integral[i - width] : 0);
+    }
+  }
+}
+
+void FaceMasker::Erode(int width, int height, int half_window,
+                       const int *integral, bool *mask) {
+  #pragma omp parallel for
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      int i = x + y * width;
+
+      if (mask[i]) {
+        if (Sum(width, height, x - half_window, x + half_window,
+                y - half_window, y + half_window, integral) > 0) {
+          mask[i] = false;
+        }
+      }
+    }
+  }
+}
+
+void FaceMasker::Dilate(int width, int height, int half_window,
+                        const int *integral, bool *mask) {
+  #pragma omp parallel for
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      int i = x + y * width;
+
+      if (!mask[i]) {
+        if (Sum(width, height, x - half_window, x + half_window,
+                y - half_window, y + half_window, integral) > 0) {
+          mask[i] = true;
+        }
+      }
     }
   }
 }
@@ -292,20 +354,33 @@ int FaceMasker::Sum(int width, int height, int left, int right,
 }
 
 int FaceMasker::Mean(int width, int height, int left, int right,
-                     int top, int bottom, const int *integral) {
+                     int top, int bottom, const int *value_integral,
+                     const int *valid_integral) {
   int x1 = MIN(MAX(left, 0), width - 1);
   int y1 = MIN(MAX(top, 0), height - 1);
   int x2 = MIN(MAX(right, 0), width -1);
   int y2 = MIN(MAX(bottom, 0), height - 1);
 
-  int a = integral[x2 + y2 * width];
-  int b = (y1 > 0) ? integral[x2 + (y1 - 1) * width] : 0;
-  int c = (x1 > 0) ? integral[(x1 - 1) + y2 * width] : 0;
-  int d = ((x1 > 0) && (y1 > 0)) ? integral[(x1 - 1) + (y1 - 1) * width] : 0;
+  int a, b, c, d;
 
-  int size = (x2 - x1 + 1) * (y2 - y1 + 1);
+  a = valid_integral[x2 + y2 * width];
+  b = (y1 > 0) ? valid_integral[x2 + (y1 - 1) * width] : 0;
+  c = (x1 > 0) ? valid_integral[(x1 - 1) + y2 * width] : 0;
+  d = ((x1 > 0) && (y1 > 0)) ? valid_integral[(x1 - 1) + (y1 - 1) * width] : 0;
 
-  return (a - b - c + d) / size;
+  int size = (a - b - c + d);
+  int window_size = (x2 - x1 + 1) * (y2 - y1 + 1);
+
+  if (size > (window_size / 4)) {
+    a = value_integral[x2 + y2 * width];
+    b = (y1 > 0) ? value_integral[x2 + (y1 - 1) * width] : 0;
+    c = (x1 > 0) ? value_integral[(x1 - 1) + y2 * width] : 0;
+    d = ((x1 > 0) && (y1 > 0)) ? value_integral[(x1 - 1) + (y1 - 1) * width] : 0;
+
+    return (a - b - c + d) / size;
+  }
+
+  return 0;
 }
 
 } // namespace dip

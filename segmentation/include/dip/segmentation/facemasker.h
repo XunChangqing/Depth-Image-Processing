@@ -37,12 +37,13 @@ namespace dip {
 
 class FaceMasker : public cv::CascadeClassifier::MaskGenerator {
 public:
-  FaceMasker() : head_region_(NULL), depth_integral_(NULL),
-                 head_integral_(NULL), min_sizes_(NULL), max_sizes_(NULL),
+  FaceMasker() : valid_mask_(NULL), head_mask_(NULL), depth_integral_(NULL),
+                 valid_integral_(NULL), head_integral_(NULL),
+                 min_sizes_(NULL), max_sizes_(NULL),
                  size_(0), frame_(0), scale_(0) {}
   ~FaceMasker();
 
-  void Run(int min_depth, int min_pixels, int min_head_pixels,
+  void Run(int min_depth, int min_pixels, int open_size,
            int head_width, int head_height, int head_depth,
            int face_size, int extended_size, int window_size,
            int width, int height, float focal_length,
@@ -53,17 +54,23 @@ public:
   void initializeMask(const cv::Mat& src) {}
 
 private:
-  void Integral(int width, int height, int min_depth, int max_depth,
-                const Depth *depth, int *integral);
-  void Integral(int width, int height, const int *input, int *integral);
+  void Integral(int width, int height, bool *valid, const Depth *depth,
+                int *integral);
+  void Integral(int width, int height, bool flag, const bool *mask,
+                int *integral);
+
+  void Erode(int width, int height, int half_window, const int *integral,
+             bool *mask);
+  void Dilate(int width, int height, int half_window, const int *integral,
+              bool *mask);
 
   int Sum(int width, int height, int left, int right, int top, int bottom,
           const int *integral);
   int Mean(int width, int height, int left, int right, int top, int bottom,
-           const int *integral);
+           const int *value_integral, const int *valid_integral);
 
-  int *head_region_;
-  int *depth_integral_, *head_integral_;
+  bool *valid_mask_, *head_mask_;
+  int *depth_integral_, *valid_integral_, *head_integral_;
 
   float *min_sizes_, *max_sizes_;
 

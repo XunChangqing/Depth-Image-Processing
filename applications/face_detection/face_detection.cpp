@@ -49,9 +49,11 @@ const int kWindowHeight = 480;
 
 const int kFramesPerSecond = 30;
 
+const bool kMasking = true;
+const bool kDownsample = true;
 const int kMinDepth = 256;
 const int kMinPixels = 10;
-const int kMinHeadPixels = 10;
+const int kOpenSize = 2;
 const int kHeadWidth = 150;
 const int kHeadHeight = 150;
 const int kHeadDepth = 100;
@@ -66,6 +68,7 @@ FaceMasker *g_masker = NULL;
 Camera *g_camera = NULL;
 
 Depth *g_depth = NULL;
+Depth *g_downsampled_depth = NULL;
 Color *g_color = NULL;
 
 GLuint g_texture;
@@ -78,6 +81,9 @@ void close() {
     delete [] g_depth;
   if (g_color != NULL)
     delete [] g_color;
+
+  if (g_downsampled_depth != NULL)
+    delete [] g_downsampled_depth;
 
   exit(0);
 }
@@ -102,20 +108,43 @@ void display() {
     close();
   }
 
+  if (kDownsample) {
+    int i = 0;
+    for (int y = 0; y < g_camera->height(DEPTH_SENSOR) / 2; y++) {
+      for (int x = 0; x < g_camera->width(DEPTH_SENSOR) / 2; x++, i++) {
+        int j = (x << 1) + (y << 1) * g_camera->width(DEPTH_SENSOR);
+        g_downsampled_depth[i] = g_depth[j];
+      }
+    }
+  }
+
   // Detect faces in color image.
   Mat image(g_camera->height(COLOR_SENSOR), g_camera->width(COLOR_SENSOR),
             CV_8UC3, g_color);
 
   // Eliminate sub-images using depth image.
-  Size window_size = g_cascade.getOriginalWindowSize();
-  g_masker->Run(kMinDepth, kMinPixels, kMinHeadPixels, kHeadWidth, kHeadHeight,
-                kHeadDepth, kFaceSize, kExtendedSize, window_size.width,
-                g_camera->width(DEPTH_SENSOR), g_camera->height(DEPTH_SENSOR),
-                (g_camera->fx(DEPTH_SENSOR)+g_camera->fy(DEPTH_SENSOR)) / 2.0f,
-                g_depth, g_color);
+  if (kMasking) {
+    Size window_size = g_cascade.getOriginalWindowSize();
+
+    if (kDownsample) {
+      g_masker->Run(kMinDepth, kMinPixels, kOpenSize, kHeadWidth, kHeadHeight,
+                    kHeadDepth, kFaceSize, kExtendedSize, window_size.width,
+                    g_camera->width(DEPTH_SENSOR) / 2,
+                    g_camera->height(DEPTH_SENSOR) / 2,
+                    (g_camera->fx(DEPTH_SENSOR) + g_camera->fy(DEPTH_SENSOR)) /
+                    4.0f, g_downsampled_depth, g_color);
+    } else {
+      g_masker->Run(kMinDepth, kMinPixels, kOpenSize, kHeadWidth, kHeadHeight,
+                    kHeadDepth, kFaceSize, kExtendedSize, window_size.width,
+                    g_camera->width(DEPTH_SENSOR),
+                    g_camera->height(DEPTH_SENSOR),
+                    (g_camera->fx(DEPTH_SENSOR) + g_camera->fy(DEPTH_SENSOR)) /
+                    2.0f, g_depth, g_color);
+    }
+  }
 
   vector<Rect> faces;
-  g_cascade.detectMultiScale(image, faces, 1.1, 3);
+  g_cascade.detectMultiScale(image, faces);
 
   // Update Texture
   glEnable(GL_TEXTURE_2D);
@@ -206,6 +235,11 @@ int main(int argc, char **argv) {
   g_color = new Color[g_camera->width(COLOR_SENSOR) *
                       g_camera->height(COLOR_SENSOR)];
 
+  if (kDownsample) {
+    g_downsampled_depth = new Depth[g_camera->width(DEPTH_SENSOR) *
+                                    g_camera->height(DEPTH_SENSOR) / 4];
+  }
+
   // Initialize face classifier.
   if (!g_cascade.load(kCascade)) {
     printf("Failed to load cascade classifier.\n");
@@ -213,9 +247,11 @@ int main(int argc, char **argv) {
   }
 
   // Initialize face masker.
-  g_masker = new FaceMasker;
-  Ptr<CascadeClassifier::MaskGenerator> masker_ptr(g_masker);
-  g_cascade.setMaskGenerator(masker_ptr);
+  if (kMasking) {
+    g_masker = new FaceMasker;
+    Ptr<CascadeClassifier::MaskGenerator> masker_ptr(g_masker);
+    g_cascade.setMaskGenerator(masker_ptr);
+  }
 
   // Initialize OpenGL.
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
