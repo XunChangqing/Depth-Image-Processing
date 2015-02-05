@@ -3,7 +3,6 @@ SET(APPICATION_NAME face_detection)
 SET(MODULE_DEPENDENCIES
     cameras
     common
-    io
     segmentation
     )
 
@@ -35,6 +34,7 @@ set(LIBS
     ${GLUT_LIBRARIES}
     ${OpenCV_LIBRARIES}
     ${OPENGL_LIBRARIES}
+    ${OPENNI_LIBRARIES}
     ${MODULE_DEPENDENCIES}
     )
 

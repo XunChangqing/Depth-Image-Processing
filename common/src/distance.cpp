@@ -33,6 +33,7 @@ using namespace std;
 
 namespace dip {
 
+//distance计算每个像素距离最近的边缘的像素距离
 void Distance::Run(int width, int height, const bool *mask,
                    unsigned int *distance) {
   // Initialize distances.

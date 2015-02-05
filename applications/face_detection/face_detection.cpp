@@ -35,7 +35,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // DIP
 #include <dip/cameras/camera.h>
-#include <dip/cameras/dumpfile.h>
 #include <dip/cameras/primesense.h>
 #include <dip/common/types.h>
 #include <dip/segmentation/facemasker.h>
@@ -55,7 +54,7 @@ const int kMaxDepth = 5000;
 const float kMinFaceSize = 100.0f;
 const float kMaxFaceSize = 225.0f;
 
-const char kCascade[] = "haarcascade_frontalface_default.xml";
+const char kCascade[] = "data/haarcascade_frontalface_default.xml";
 
 CascadeClassifier g_cascade;
 FaceMasker *g_masker = NULL;
@@ -186,10 +185,7 @@ int main(int argc, char **argv) {
   glutInit(&argc, argv);
 
   // Initialize camera.
-  if (argc < 2)
-    g_camera = new PrimeSense();
-  else
-    g_camera = new DumpFile(argv[1]);
+  g_camera = new PrimeSense();
 
   if (!g_camera->enabled()) {
     printf("Unable to Open Camera\n");
@@ -211,7 +207,7 @@ int main(int argc, char **argv) {
   // Initialize face masker.
   g_masker = new FaceMasker;
   Ptr<CascadeClassifier::MaskGenerator> masker_ptr(g_masker);
-  g_cascade.setMaskGenerator(masker_ptr);
+  //g_cascade.setMaskGenerator(masker_ptr);
 
   // Initialize OpenGL.
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);

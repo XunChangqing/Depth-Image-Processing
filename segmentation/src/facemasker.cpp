@@ -27,6 +27,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <dip/segmentation/facemasker.h>
+#include <opencv2/highgui/highgui.hpp>
 
 using namespace cv;
 
@@ -82,11 +83,20 @@ void FaceMasker::Run(int max_difference, int min_depth, int max_depth,
       }
     }
   }
+  cv::Mat boundary_bool(height, width, CV_8UC1, boundary_);
+  cv::Mat boundary_mat(height, width, CV_8UC1, cvScalar(0));
+  boundary_mat.setTo(255, boundary_bool);
+  imshow("boundary", boundary_mat);
 
+  //distance计算每个像素距离最近的边缘的像素距离
   distance_.Run(width_, height_, boundary_, distances_);
 
   memset(min_sizes_, 0, sizeof(float) * size_);
   memset(max_sizes_, 0, sizeof(float) * size_);
+
+  Mat tmp_mask(height_, width_, CV_8UC1);
+  tmp_mask.setTo(0);
+  unsigned char * pmask = tmp_mask.data;
 
   #pragma omp parallel for
   for (int y = 1; y < height_ - 1; y++) {
@@ -100,6 +110,8 @@ void FaceMasker::Run(int max_difference, int min_depth, int max_depth,
         int mean_radius = (int)((min_size + max_size) / 4.0f);
         int difference = (int)((max_size - min_size) / 2.0f);
 
+		//判断平均半径处，左边、右边、上边三个方向，
+		//要求这三个方向的半径处距离最近边缘的距离不能太远，否则当前点不可能作为头部中心
         if (x > mean_radius) {
           if (distances_[i - mean_radius] > difference)
             continue;
@@ -115,16 +127,21 @@ void FaceMasker::Run(int max_difference, int min_depth, int max_depth,
             continue;
         }
 
+		//此处的最小大小和最大大小表示以该点为中心的人脸，可能的最大像素大小和最小像素大小
         min_sizes_[i] = min_size;
         max_sizes_[i] = max_size;
+		pmask[i] = 255;
       }
     }
   }
+
+  imshow("tmp_mask", tmp_mask);
+  waitKey(1);
 }
 
 Mat FaceMasker::generateMask(const Mat& src) {
   Mat mask = Mat::zeros(src.size(), CV_8U);
-
+  //将当前输入窗口缩放到与训练所用窗口大小的尺度上
   float scale = (float)src.cols / (float)width_;
   float inv_scale = 1.0f / scale;
   float half_window = window_size_ / 2.0f;
@@ -141,7 +158,7 @@ Mat FaceMasker::generateMask(const Mat& src) {
 
       if ((Y < height_) && (X < width_)) {
         int i = X + Y * width_;
-
+		//只将有可能为头部内部的点置为255
         if ((scaled_window_size >= min_sizes_[i]) &&
             (scaled_window_size <= max_sizes_[i])) {
           mask.at<unsigned char>(y, x) = 255;

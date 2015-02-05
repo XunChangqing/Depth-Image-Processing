@@ -2,7 +2,6 @@ set(MODULE_NAME cameras)
 
 SET(MODULE_DEPENDENCIES
     common
-    io
     )
 
 include(includes.cmake)
@@ -25,12 +24,10 @@ include_directories(${INCLUDE_DIRS})
 
 set(INCS
     include/dip/${MODULE_NAME}/camera.h
-    include/dip/${MODULE_NAME}/dumpfile.h
     include/dip/${MODULE_NAME}/primesense.h
     )
 
 set(SRCS
-    src/dumpfile.cpp
     src/primesense.cpp
     )
 
